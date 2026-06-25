@@ -1,5 +1,3 @@
-<img width="1280" height="2772" alt="image" src="https://github.com/user-attachments/assets/cbd1b0bb-fcba-4e2c-b218-2c2c8a6fcc38" /><img width="600" height="1299" alt="image" src="https://github.com/user-attachments/assets/6cac22ef-14e4-4361-94dd-653a523e1d70" /><img width="1280" height="2772" alt="image" src="https://github.com/user-attachments/assets/b9c7c262-c924-4798-9b9c-3e7e69e7e177" />## Run Locally
-
 **Prerequisites:**  Node.js
 
 1. Install dependencies:
