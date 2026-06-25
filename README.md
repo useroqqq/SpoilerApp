@@ -10,4 +10,4 @@ The built application is located in the "dist" folder. You simply need to add th
 
 This project is based on another project: https://codeberg.org/quandang/ImageAlbum
 
-![Logo](https://raw.githubusercontent.com/useroqqq/SpoilerApp/4dda6573a8b403ef19bffa5aec131ac26ca234e0/src/icon.svg)
+<img src="https://raw.githubusercontent.com/useroqqq/SpoilerApp/4dda6573a8b403ef19bffa5aec131ac26ca234e0/src/icon.svg" width="200" height="200" />
