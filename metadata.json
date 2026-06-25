@@ -1,0 +1,6 @@
+{
+  "name": "ChatSpoiler",
+  "description": "A Webxdc app for sending spoiler images in Delta Chat",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
