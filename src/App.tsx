@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, ChangeEvent } from 'react';
 import { Image as ImageIcon, EyeOff, Send, X, ShieldAlert, Plus } from 'lucide-react';
 import { getWebxdc } from './webxdc';
 import JSZip from 'jszip';
@@ -34,60 +34,6 @@ function resizeImage(file: File, maxWidth = 1200, maxHeight = 1200): Promise<str
            resolve(canvas.toDataURL('image/jpeg', 0.8));
         } else {
            resolve(e.target?.result as string); // fallback
-        }
-      };
-      img.onerror = reject;
-      img.src = e.target?.result as string;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-// Helper to create a blurred thumbnail for the chat list
-function createIcon(file: File): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const MAX_DIM = 600;
-        let width = img.width;
-        let height = img.height;
-        if (width > height && width > MAX_DIM) {
-          height = Math.round((height * MAX_DIM) / width);
-          width = MAX_DIM;
-        } else if (height > MAX_DIM) {
-          width = Math.round((width * MAX_DIM) / height);
-          height = MAX_DIM;
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-           ctx.filter = 'blur(25px) saturate(200%)';
-           ctx.drawImage(img, -40, -40, width + 80, height + 80); // draw slightly larger to hide edge artifacts from blur
-           
-           // Overlay darkening
-           ctx.filter = 'none';
-           ctx.fillStyle = 'rgba(0,0,0,0.2)';
-           ctx.fillRect(0, 0, width, height);
-           
-           // Draw fake sparkles
-           ctx.fillStyle = 'rgba(255,255,255,0.7)';
-           const numSparkles = (width * height) / 400; // density based on area
-           for (let i = 0; i < numSparkles; i++) {
-             ctx.fillRect(Math.random() * width, Math.random() * height, 1.5, 1.5);
-           }
-           
-           canvas.toBlob((blob) => {
-             if (blob) resolve(blob);
-             else reject(new Error('Canvas to blob failed'));
-           }, 'image/jpeg', 0.8);
-        } else {
-           reject(new Error('No canvas context'));
         }
       };
       img.onerror = reject;
@@ -160,6 +106,8 @@ const TEMPLATE_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+import iconUrl from '../icon.png';
+
 export default function App() {
   const webxdc = getWebxdc();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -167,8 +115,8 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
     
     if (imageFiles.length > 0) {
@@ -203,7 +151,8 @@ export default function App() {
     try {
       // 1. Prepare image contents
       const base64Images = await Promise.all(selectedFiles.map(file => resizeImage(file)));
-      const iconBlob = await createIcon(selectedFiles[0]);
+      const iconRes = await fetch(iconUrl);
+      const iconBlob = await iconRes.blob();
       
       // 2. Build index.html
       const imagesHtml = base64Images.map(imgData => `
@@ -217,8 +166,8 @@ export default function App() {
       // 3. Create zip file
       const zip = new JSZip();
       zip.file('index.html', indexHtml);
-      zip.file('icon.jpg', iconBlob);
-      zip.file('manifest.toml', `name = "Spoiler"\nsource_code_url = ""`);
+      zip.file('icon.png', iconBlob);
+      zip.file('manifest.toml', `name = "Spoiler"\nicon = "icon.png"`);
       
       // 4. Generate zip blob
       const zipBlob = await zip.generateAsync({
