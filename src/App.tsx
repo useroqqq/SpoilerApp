@@ -44,6 +44,60 @@ function resizeImage(file: File, maxWidth = 1200, maxHeight = 1200): Promise<str
   });
 }
 
+// Helper to create a blurred thumbnail for the chat list
+function createIcon(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 600;
+        let width = img.width;
+        let height = img.height;
+        if (width > height && width > MAX_DIM) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else if (height > MAX_DIM) {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+           ctx.filter = 'blur(25px) saturate(200%)';
+           ctx.drawImage(img, -40, -40, width + 80, height + 80); // draw slightly larger to hide edge artifacts from blur
+           
+           // Overlay darkening
+           ctx.filter = 'none';
+           ctx.fillStyle = 'rgba(0,0,0,0.2)';
+           ctx.fillRect(0, 0, width, height);
+           
+           // Draw fake sparkles
+           ctx.fillStyle = 'rgba(255,255,255,0.7)';
+           const numSparkles = (width * height) / 400; // density based on area
+           for (let i = 0; i < numSparkles; i++) {
+             ctx.fillRect(Math.random() * width, Math.random() * height, 1.5, 1.5);
+           }
+           
+           canvas.toBlob((blob) => {
+             if (blob) resolve(blob);
+             else reject(new Error('Canvas to blob failed'));
+           }, 'image/jpeg', 0.8);
+        } else {
+           reject(new Error('No canvas context'));
+        }
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 const TEMPLATE_HTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -112,6 +166,7 @@ export default function App() {
   const webxdc = getWebxdc();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [caption, setCaption] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -132,6 +187,7 @@ export default function App() {
     setSelectedFiles([]);
     previewUrls.forEach(url => URL.revokeObjectURL(url));
     setPreviewUrls([]);
+    setCaption('');
     setSuccessMessage(null);
   };
 
@@ -144,24 +200,36 @@ export default function App() {
   };
 
   const handleSend = async () => {
-    if (selectedFiles.length === 0) return;
     setIsSending(true);
     setSuccessMessage(null);
 
     try {
-      // 1. Prepare image contents
-      const base64Images = await Promise.all(selectedFiles.map(file => resizeImage(file)));
-      const iconRes = await fetch(iconUrl);
-      const iconBlob = await iconRes.blob();
-      
-      // 2. Build index.html
-      const imagesHtml = base64Images.map(imgData => `
-        <div class="image-wrapper">
-          <img src="${imgData}" class="hidden-img" draggable="false" />
-          <div class="spoiler-overlay"></div>
-        </div>
-      `).join('');
-      const indexHtml = TEMPLATE_HTML.replace('__IMAGES_HTML__', imagesHtml);
+      let iconBlob: Blob;
+      let indexHtml = '';
+
+      if (selectedFiles.length > 0) {
+        // 1. Prepare image contents
+        const base64Images = await Promise.all(selectedFiles.map(file => resizeImage(file)));
+        iconBlob = await createIcon(selectedFiles[0]);
+        
+        // 2. Build index.html
+        const imagesHtml = base64Images.map(imgData => `
+          <div class="image-wrapper">
+            <img src="${imgData}" class="hidden-img" draggable="false" />
+            <div class="spoiler-overlay"></div>
+          </div>
+        `).join('');
+        indexHtml = TEMPLATE_HTML.replace('__IMAGES_HTML__', imagesHtml);
+      } else {
+        const iconRes = await fetch(iconUrl);
+        iconBlob = await iconRes.blob();
+        indexHtml = TEMPLATE_HTML.replace('__IMAGES_HTML__', `
+          <div style="color: white; text-align: center; padding: 2rem; font-family: sans-serif;">
+            <h2 style="margin-bottom: 1rem;">${caption || 'No images to show'}</h2>
+            <p style="color: #888;">This is an empty spoiler app.</p>
+          </div>
+        `);
+      }
       
       // 3. Create zip file
       const zip = new JSZip();
@@ -177,12 +245,17 @@ export default function App() {
       });
       
       // 5. Send to chat
-      await webxdc.sendToChat({
+      const messagePayload: any = {
         file: {
           name: `ChatSpoiler.xdc`,
           blob: zipBlob
         }
-      });
+      };
+      if (caption.trim() !== '') {
+        messagePayload.text = caption.trim();
+      }
+
+      await webxdc.sendToChat(messagePayload);
 
       // Show success briefly
       setSuccessMessage('Spoiler sent to chat!');
@@ -231,22 +304,47 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
+      <main className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-start">
+        <div className="w-full max-w-md bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6 shrink-0 mt-4">
+          <label className="block text-sm font-medium text-slate-700 mb-2">Caption (optional)</label>
+          <input 
+            type="text" 
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Add a message..."
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+          />
+        </div>
+
         {previewUrls.length === 0 ? (
-          <label className="flex flex-col items-center justify-center w-full max-w-sm aspect-square bg-white border-2 border-dashed border-slate-300 rounded-3xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all group shadow-sm">
-            <div className="w-16 h-16 bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 rounded-full flex items-center justify-center mb-4 transition-colors">
-              <ImageIcon className="w-8 h-8" />
-            </div>
-            <span className="font-medium text-slate-700 group-hover:text-blue-700 transition-colors text-lg">Select photos</span>
-            <span className="text-sm text-slate-400 mt-2 text-center px-4">They will be hidden in the chat and revealed only on tap</span>
-            <input 
-              type="file" 
-              accept="image/*" 
-              multiple
-              className="hidden" 
-              onChange={handleFileSelect} 
-            />
-          </label>
+          <div className="w-full max-w-md flex flex-col gap-4">
+            <label className="flex flex-col items-center justify-center w-full aspect-square bg-white border-2 border-dashed border-slate-300 rounded-3xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all group shadow-sm">
+              <div className="w-16 h-16 bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 rounded-full flex items-center justify-center mb-4 transition-colors">
+                <ImageIcon className="w-8 h-8" />
+              </div>
+              <span className="font-medium text-slate-700 group-hover:text-blue-700 transition-colors text-lg">Select photos</span>
+              <span className="text-sm text-slate-400 mt-2 text-center px-4">They will be hidden in the chat and revealed only on tap</span>
+              <input 
+                type="file" 
+                accept="image/*" 
+                multiple
+                className="hidden" 
+                onChange={handleFileSelect} 
+              />
+            </label>
+            <button 
+              onClick={handleSend}
+              disabled={isSending}
+              className={`w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-semibold text-lg transition-all shadow-md ${
+                isSending 
+                  ? 'bg-blue-400 text-white cursor-wait' 
+                  : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0'
+              }`}
+            >
+              <Send className="w-5 h-5" />
+              {isSending ? 'Sending...' : 'Send Empty App'}
+            </button>
+          </div>
         ) : (
           <div className="w-full flex flex-col items-center animate-in fade-in zoom-in duration-300 h-full justify-between pb-8">
             {successMessage && (
